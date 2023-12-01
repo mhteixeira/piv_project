@@ -16,9 +16,9 @@ def get_features(video_path):
         ret, frame = vid_capture.read()
         if ret == True:
             # getting keypoints and descriptor
-            sift = cv2.SIFT_create()
+            orb = cv2.ORB_create()
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-            keypoints, descriptor = sift.detectAndCompute(frame_gray, None)
+            keypoints, descriptor = orb.detectAndCompute(frame_gray, None)
 
             # getting the location of each keypoint
             x_location = []
