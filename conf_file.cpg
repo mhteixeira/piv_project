@@ -2,7 +2,7 @@
 
 #INPUT PARAMETERS
 #path to videofile
-videos examples/trymefirst.mp4
+videos examples/trymefirst_paris.mp4
 
 # Correspondences from points in the map and points in a frame (first frame is 1) 
 # there is a fixed label (pixel)
