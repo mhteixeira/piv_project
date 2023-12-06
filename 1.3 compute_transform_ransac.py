@@ -105,6 +105,7 @@ def ransac_homography_custom(src_points, dst_points, iterations=1000, threshold=
     best_homography = None
     max_inliers = 0
     n_points = src_points.shape[0]
+    best_projects = None
 
     for _ in range(iterations):
         # Randomly select 4 points for homography computation
@@ -131,10 +132,11 @@ def ransac_homography_custom(src_points, dst_points, iterations=1000, threshold=
         if inliers_count > max_inliers:
             best_homography = H
             max_inliers = inliers_count
+            best_projects = projected_points
 
     # Re-estimate homography using all inliers if a model was found
     if best_homography is not None:
-        inliers = np.sqrt(np.sum((projected_points - dst_points) ** 2, axis=1)) < threshold
+        inliers = np.sqrt(np.sum((best_projects - dst_points) ** 2, axis=1)) < threshold
         best_homography = create_homography_matrix(src_points[inliers], dst_points[inliers])
 
     return best_homography, inliers
@@ -162,7 +164,7 @@ if __name__ == "__main__":
         if config['transforms'][0][1] == 'all':
             features = io.loadmat(config['keypoints_out'])['features']
             frames_to_process = features.shape[1]
-            homographies = homographies_from_features(features, frames_to_process)
+            homographies = ransac_homography_custom(features, frames_to_process)
         elif config['transforms'][0][1] == 'map':
             if len(config['pts_in_map']) != len(config['pts_in_frame']):
                 print("Different amount of pts_in_map and pts_in_frame defined inside the config file")
