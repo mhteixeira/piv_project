@@ -3,10 +3,7 @@ import numpy as np
 
 from scipy import io
 from scipy.spatial.distance import cdist
-from sklearn.decomposition import PCA
-
-import cv2 
-from cv2 import DMatch
+from cv2 import DMatch # Only used for creating DMatch object 
 
 def parse_config_file(file_path):
     config_dict = {}
@@ -36,16 +33,7 @@ def parse_config_file(file_path):
 
     return config_dict
 
-def match_features(features1, features2, matches_size = 100, num_features= 64):
-    C = np.vstack((features1, features2))
-    
-    # PCA
-    pca = PCA(n_components=num_features)
-    reconstructed = pca.fit_transform(C)
-    
-    features1 = reconstructed[:len(features1), :]
-    features2 = reconstructed[len(features1):, :]
-    
+def match_features(features1, features2, matches_size = 100):
     # Euclidean distance
     D = cdist(features1, features2, 'euclidean')
     
@@ -85,12 +73,15 @@ def create_homography_matrix(src_points, dst_points):
         b.append(v)
 
     A = np.array(A)
+    try:
+        h = np.dot((np.dot(np.linalg.inv(np.dot(A.T,A)),A.T)), b)
+        h = np.append(h, 1) 
+        h = h.reshape(3,3)
+        
+        return h
+    except:
+        pass
 
-    h = np.dot((np.dot(np.linalg.inv(np.dot(A.T,A)),A.T)), b)
-    h = np.append(h, 1) 
-    h = h.reshape(3,3)
-    
-    return h
 
 def ransac_homography_custom(src_points, dst_points, iterations=1000, threshold=5.0):
     """
@@ -114,25 +105,27 @@ def ransac_homography_custom(src_points, dst_points, iterations=1000, threshold=
         dst_sample = dst_points[indices]
 
         # Estimate homography using these points
-        H = create_homography_matrix(src_sample, dst_sample)
+        try:
+            H = create_homography_matrix(src_sample, dst_sample)
+            # Project src_points using the estimated homography
+            ones = np.ones((src_points.shape[0], 1))
+            homogeneous_src_points = np.hstack([src_points, ones])
+            projected_points = (H @ homogeneous_src_points.T).T
+            projected_points = projected_points[:, :2] / projected_points[:, [2]]
 
-        # Project src_points using the estimated homography
-        ones = np.ones((src_points.shape[0], 1))
-        homogeneous_src_points = np.hstack([src_points, ones])
-        projected_points = (H @ homogeneous_src_points.T).T
-        projected_points = projected_points[:, :2] / projected_points[:, [2]]
+            # Calculate distances between projected and actual destination points
+            distances = np.sqrt(np.sum((projected_points - dst_points) ** 2, axis=1))
 
-        # Calculate distances between projected and actual destination points
-        distances = np.sqrt(np.sum((projected_points - dst_points) ** 2, axis=1))
+            # Count inliers
+            inliers_count = np.sum(distances < threshold)
 
-        # Count inliers
-        inliers_count = np.sum(distances < threshold)
-
-        # Update the best homography matrix if more inliers are found
-        if inliers_count > max_inliers:
-            best_homography = H
-            max_inliers = inliers_count
-            best_projects = projected_points
+            # Update the best homography matrix if more inliers are found
+            if inliers_count > max_inliers:
+                best_homography = H
+                max_inliers = inliers_count
+                best_projects = projected_points
+        except:
+            continue
 
     # Re-estimate homography using all inliers if a model was found
     if best_homography is not None:
@@ -140,7 +133,30 @@ def ransac_homography_custom(src_points, dst_points, iterations=1000, threshold=
         best_homography = create_homography_matrix(src_points[inliers], dst_points[inliers])
 
     return best_homography, inliers
-    
+
+def homographies_from_features(features, frames_to_process):
+    homographies = []
+    for i in range(frames_to_process):
+        for j in range(i+1, frames_to_process):
+            matches, confidences = match_features(np.transpose(features[0, i][2:]), np.transpose(features[0, j][2:]), matches_size=100)
+
+            src_points = []
+            dst_points = []
+
+            for match in matches:
+                src_points.append(features[0, i][:2, match.queryIdx])
+                dst_points.append(features[0, j][:2, match.trainIdx])
+
+            src_points = np.array(src_points)
+            dst_points = np.array(dst_points)
+                
+            homography = [i+1, j+1]
+            homography_matrix, _ = ransac_homography_custom(src_points, dst_points, 5000)
+            
+            homography.extend(homography_matrix.flatten())
+            homographies.append(homography)
+    return homographies
+
 def homographies_from_corresponding_points(pts_in_map_from_config, pts_in_frame_from_config):
     homographies = []
     for i in range(len(pts_in_map_from_config)):
@@ -153,6 +169,31 @@ def homographies_from_corresponding_points(pts_in_map_from_config, pts_in_frame_
         homographies.append(homography)
     return homographies
 
+def homographies_from_map(features, frame_to_process, pts_in_map, pts_in_frame):
+    homographies_between_frames = np.array(homographies_from_features(features, frame_to_process))
+    homographies = np.array(homographies_from_corresponding_points(pts_in_map, pts_in_frame))
+    indexes_frame = np.array(homographies)[:, 1]
+    for i in range(1, frame_to_process + 1):
+        if i in indexes_frame:
+            continue
+        else:
+            # get nearest frame 
+            difference_array = np.absolute(indexes_frame-i)
+            near_value = int(indexes_frame[difference_array.argmin()])
+            # get the homographie between nearest point and current frame
+            if i < near_value:
+                index = np.where(np.all(homographies_between_frames[:, 0:2] == [i, near_value], axis=1))[0][0]
+            else: 
+                index = np.where(np.all(homographies_between_frames[:, 0:2] == [near_value, i], axis=1))[0][0]
+            homography_i_to_near_value = homographies_between_frames[index, 2:].reshape(3, 3)
+
+            # compute compose homography
+            homography_near_value_to_map = homographies[np.where(indexes_frame == near_value)[0][0], 2:].reshape(3,3)
+            homography = [0, i]
+            homography.extend(np.array(homography_near_value_to_map @ homography_i_to_near_value).flatten())
+            homographies = np.vstack((homographies, homography))
+    return homographies
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("It's necessary the config path")
@@ -161,16 +202,17 @@ if __name__ == "__main__":
     config = parse_config_file(config_path)
 
     if config['transforms'][0][0] == 'homography':
-        if config['transforms'][0][1] == 'all':
-            features = io.loadmat(config['keypoints_out'])['features']
-            frames_to_process = features.shape[1]
-            homographies = ransac_homography_custom(features, frames_to_process)
+        features = io.loadmat(config['keypoints_out'])['features']
+        frames_to_process = features.shape[1]
+
+        if config['transforms'][0][1] == 'all':    
+            homographies = homographies_from_features(features, frames_to_process)
         elif config['transforms'][0][1] == 'map':
             if len(config['pts_in_map']) != len(config['pts_in_frame']):
                 print("Different amount of pts_in_map and pts_in_frame defined inside the config file")
                 sys.exit(1)
-            homographies = homographies_from_corresponding_points(config['pts_in_map'], config['pts_in_frame'])
-        data={'transforms': np.array(homographies).transpose()}
+            homographies = homographies_from_map(features, frames_to_process, config['pts_in_map'], config['pts_in_frame'])
+        data={'transforms': homographies}
         io.savemat(config['transforms_out'], data)
     else:
         print("The only acceptable type is \"homography\"")

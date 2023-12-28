@@ -42,20 +42,21 @@ def get_features(video_path):
         # and the second is frame
         ret, frame = vid_capture.read()
             
-        sift = cv2.SIFT_create()
+        sift = cv2.SIFT_create(nfeatures=1000)
         if ret == True:
             # getting keypoints and descriptor
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-            keypoints, descriptor = sift.detectAndCompute(frame_gray, None)
+            frame_equalize = cv2.equalizeHist(frame_gray)
+            keypoints, descriptor = sift.detectAndCompute(frame_equalize, None)
 
             # getting the location of each keypoint
-            x_location = []
-            y_location = []
+            location = []
             for keypoint in keypoints:
-                x_location.append(keypoint.pt[0])
-                y_location.append(keypoint.pt[1])
+                location.append(keypoint.pt)
+            location = np.array(location)
             
-            concatenation = np.insert(np.transpose(descriptor), [0, 1], [x_location, y_location], axis=0)
+            concatenation = np.insert(np.transpose(descriptor), 0, location[:, 0], axis=0)
+            concatenation = np.insert(concatenation, 1, location[:, 1], axis=0)
             
             features[0, current_frame] = concatenation
 
