@@ -11,7 +11,7 @@ while cap.isOpened():
     if k == 30:
         break
     elif k == ord('s'): # wait for 's' key to save and exit
-        cv2.imwrite('frames/img' + str(num) + '.png', img)
+        cv2.imwrite('frames2/img' + str(num) + '.png', img)
         print("image has been saved")
         num += 1
     cv2.imshow('webcam', img)
