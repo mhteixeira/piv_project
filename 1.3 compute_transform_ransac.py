@@ -165,31 +165,40 @@ def homographies_from_corresponding_points(pts_in_map_from_config, pts_in_frame_
         pts_in_frame = np.array(pts_in_frame_from_config[i][1:], dtype=float)
         pts_in_frame = pts_in_frame.reshape(int(len(pts_in_frame)/2), 2)
         homography = [0, int(pts_in_frame_from_config[i][0])]
-        homography.extend(create_homography_matrix(pts_in_map, pts_in_frame).flatten())
+        homography.extend(create_homography_matrix(pts_in_frame, pts_in_map).flatten())
         homographies.append(homography)
     return homographies
 
-def homographies_from_map(features, frame_to_process, pts_in_map, pts_in_frame):
-    homographies_between_frames = np.array(homographies_from_features(features, frame_to_process))
+def homographies_from_map(features, frame_to_process, pts_in_map, pts_in_frame, debug_mode=False):
     homographies = np.array(homographies_from_corresponding_points(pts_in_map, pts_in_frame))
     indexes_frame = np.array(homographies)[:, 1]
-    for i in range(1, frame_to_process + 1):
-        if i in indexes_frame:
+    for i in range(frame_to_process):
+        current_frame = i + 1
+        if current_frame in indexes_frame:
             continue
         else:
             # get nearest frame 
-            difference_array = np.absolute(indexes_frame-i)
-            near_value = int(indexes_frame[difference_array.argmin()])
-            # get the homographie between nearest point and current frame
-            if i < near_value:
-                index = np.where(np.all(homographies_between_frames[:, 0:2] == [i, near_value], axis=1))[0][0]
-            else: 
-                index = np.where(np.all(homographies_between_frames[:, 0:2] == [near_value, i], axis=1))[0][0]
-            homography_i_to_near_value = homographies_between_frames[index, 2:].reshape(3, 3)
+            difference_array = np.absolute(indexes_frame-current_frame)
+            near_value = int(indexes_frame[difference_array.argmin()]) - 1
+            
+            # compute homography between nearest frame and i 
+            matches, confidences = match_features(np.transpose(features[0, i][2:]), np.transpose(features[0, near_value][2:]), matches_size=100)
+
+            src_points = []
+            dst_points = []
+
+            for match in matches:
+                src_points.append(features[0, i][:2, match.queryIdx])
+                dst_points.append(features[0, near_value][:2, match.trainIdx])
+
+            src_points = np.array(src_points)
+            dst_points = np.array(dst_points)
+
+            homography_i_to_near_value, _ = ransac_homography_custom(src_points, dst_points, iterations=5000)
 
             # compute compose homography
-            homography_near_value_to_map = homographies[np.where(indexes_frame == near_value)[0][0], 2:].reshape(3,3)
-            homography = [0, i]
+            homography_near_value_to_map = homographies[np.where(indexes_frame == near_value + 1)[0][0], 2:].reshape(3,3)
+            homography = [0, current_frame]
             homography.extend(np.array(homography_near_value_to_map @ homography_i_to_near_value).flatten())
             homographies = np.vstack((homographies, homography))
     return homographies
