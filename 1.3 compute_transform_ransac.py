@@ -138,7 +138,7 @@ def homographies_from_features(features, frames_to_process):
     homographies = []
     for i in range(frames_to_process):
         for j in range(i+1, frames_to_process):
-            matches, confidences = match_features(np.transpose(features[0, i][2:]), np.transpose(features[0, j][2:]), matches_size=100)
+            matches, confidences = match_features(np.transpose(features[0, i][2:]), np.transpose(features[0, j][2:]), matches_size=32)
 
             src_points = []
             dst_points = []
