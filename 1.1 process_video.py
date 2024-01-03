@@ -42,7 +42,7 @@ def get_features(video_path):
         # and the second is frame
         ret, frame = vid_capture.read()
             
-        sift = cv2.SIFT_create(nfeatures=1000)
+        sift = cv2.SIFT_create(nfeatures=64)
         if ret == True:
             # getting keypoints and descriptor
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
